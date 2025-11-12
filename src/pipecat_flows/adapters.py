@@ -688,6 +688,11 @@ def create_adapter(llm, context_aggregator) -> LLMAdapter:
         logger.debug("Creating Bedrock adapter")
         return AWSBedrockAdapter()
 
+    # Support for Ultravox realtime service (using openai adapter)
+    if llm_type == "UltravoxLLMService":
+        logger.debug("Creating OpenAI adapter for Ultravox")
+        return OpenAIAdapter()
+
     # Try to find OpenAILLMService for inheritance check
     try:
         module = sys.modules.get("pipecat.services.openai.llm")
