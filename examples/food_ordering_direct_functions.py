@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2024-2025, Daily
+# Copyright (c) 2024-2026, Daily
 #
 # SPDX-License-Identifier: BSD 2-Clause License
 #
@@ -37,7 +37,10 @@ from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.task import PipelineParams, PipelineTask
 from pipecat.processors.aggregators.llm_context import LLMContext
-from pipecat.processors.aggregators.llm_response_universal import LLMContextAggregatorPair
+from pipecat.processors.aggregators.llm_response_universal import (
+    LLMContextAggregatorPair,
+    LLMUserAggregatorParams,
+)
 from pipecat.runner.types import RunnerArguments
 from pipecat.runner.utils import create_transport
 from pipecat.services.cartesia.tts import CartesiaTTSService
@@ -45,7 +48,6 @@ from pipecat.services.deepgram.stt import DeepgramSTTService
 from pipecat.transports.base_transport import BaseTransport, TransportParams
 from pipecat.transports.daily.transport import DailyParams
 from pipecat.transports.websocket.fastapi import FastAPIWebsocketParams
-from pipecat.utils.text.markdown_text_filter import MarkdownTextFilter
 from utils import create_llm
 
 from pipecat_flows import FlowManager, FlowResult, NodeConfig
@@ -56,17 +58,14 @@ transport_params = {
     "daily": lambda: DailyParams(
         audio_in_enabled=True,
         audio_out_enabled=True,
-        vad_analyzer=SileroVADAnalyzer(),
     ),
     "twilio": lambda: FastAPIWebsocketParams(
         audio_in_enabled=True,
         audio_out_enabled=True,
-        vad_analyzer=SileroVADAnalyzer(),
     ),
     "webrtc": lambda: TransportParams(
         audio_in_enabled=True,
         audio_out_enabled=True,
-        vad_analyzer=SileroVADAnalyzer(),
     ),
 }
 
@@ -184,15 +183,10 @@ def create_initial_node() -> NodeConfig:
     """Create the initial node for food type selection."""
     return NodeConfig(
         name="initial",
-        role_messages=[
-            {
-                "role": "system",
-                "content": "You are an order-taking assistant. You must ALWAYS use the available functions to progress the conversation. This is a phone conversation and your responses will be converted to audio. Keep the conversation friendly, casual, and polite. Avoid outputting special characters and emojis.",
-            }
-        ],
+        role_message="You are an order-taking assistant. You must ALWAYS use the available functions to progress the conversation. This is a phone conversation and your responses will be converted to audio. Keep the conversation friendly, casual, and polite. Avoid outputting special characters and emojis.",
         task_messages=[
             {
-                "role": "system",
+                "role": "user",
                 "content": "For this step, ask the user if they want pizza or sushi, and wait for them to use a function to choose. Start off by greeting them. Be friendly and casual; you're taking an order for food over the phone.",
             }
         ],
@@ -212,7 +206,7 @@ def create_pizza_node() -> NodeConfig:
         name="choose_pizza",
         task_messages=[
             {
-                "role": "system",
+                "role": "user",
                 "content": """You are handling a pizza order. Use the available functions:
 - Use select_pizza_order when the user specifies both size AND type
 
@@ -234,7 +228,7 @@ def create_sushi_node() -> NodeConfig:
         name="choose_sushi",
         task_messages=[
             {
-                "role": "system",
+                "role": "user",
                 "content": """You are handling a sushi order. Use the available functions:
 - Use select_sushi_order when the user specifies both count AND type
 
@@ -254,7 +248,7 @@ def create_confirmation_node() -> NodeConfig:
         name="confirm",
         task_messages=[
             {
-                "role": "system",
+                "role": "user",
                 "content": """Read back the complete order details to the user and ask if they want anything else or if they want to make changes. Use the available functions:
 - Use complete_order when the user confirms that the order is correct and no changes are needed
 - Use revise_order if they want to change something
@@ -272,7 +266,7 @@ def create_end_node() -> NodeConfig:
         name="end",
         task_messages=[
             {
-                "role": "system",
+                "role": "user",
                 "content": "Thank the user for their order and end the conversation politely and concisely.",
             }
         ],
@@ -286,14 +280,16 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
     tts = CartesiaTTSService(
         api_key=os.getenv("CARTESIA_API_KEY"),
         voice_id="820a3788-2b37-4d21-847a-b65d8a68c99a",  # Salesman
-        text_filters=[MarkdownTextFilter()],
     )
     # LLM service is created using the create_llm function from utils.py
     # Default is OpenAI; can be changed by setting LLM_PROVIDER environment variable
     llm = create_llm()
 
     context = LLMContext()
-    context_aggregator = LLMContextAggregatorPair(context)
+    context_aggregator = LLMContextAggregatorPair(
+        context,
+        user_params=LLMUserAggregatorParams(vad_analyzer=SileroVADAnalyzer()),
+    )
 
     pipeline = Pipeline(
         [

@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2024-2025, Daily
+# Copyright (c) 2024-2026, Daily
 #
 # SPDX-License-Identifier: BSD 2-Clause License
 #
@@ -37,7 +37,10 @@ from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.task import PipelineParams, PipelineTask
 from pipecat.processors.aggregators.llm_context import LLMContext
-from pipecat.processors.aggregators.llm_response_universal import LLMContextAggregatorPair
+from pipecat.processors.aggregators.llm_response_universal import (
+    LLMContextAggregatorPair,
+    LLMUserAggregatorParams,
+)
 from pipecat.runner.types import RunnerArguments
 from pipecat.runner.utils import create_transport
 from pipecat.services.cartesia.tts import CartesiaTTSService
@@ -45,7 +48,6 @@ from pipecat.services.deepgram.stt import DeepgramSTTService
 from pipecat.transports.base_transport import BaseTransport, TransportParams
 from pipecat.transports.daily.transport import DailyParams
 from pipecat.transports.websocket.fastapi import FastAPIWebsocketParams
-from pipecat.utils.text.markdown_text_filter import MarkdownTextFilter
 from utils import create_llm
 
 from pipecat_flows import (
@@ -64,17 +66,14 @@ transport_params = {
     "daily": lambda: DailyParams(
         audio_in_enabled=True,
         audio_out_enabled=True,
-        vad_analyzer=SileroVADAnalyzer(),
     ),
     "twilio": lambda: FastAPIWebsocketParams(
         audio_in_enabled=True,
         audio_out_enabled=True,
-        vad_analyzer=SileroVADAnalyzer(),
     ),
     "webrtc": lambda: TransportParams(
         audio_in_enabled=True,
         audio_out_enabled=True,
-        vad_analyzer=SileroVADAnalyzer(),
     ),
 }
 
@@ -219,15 +218,10 @@ def create_initial_node() -> NodeConfig:
 
     return NodeConfig(
         name="start",
-        role_messages=[
-            {
-                "role": "system",
-                "content": "You are Jessica, an agent for Tri-County Health Services. You must ALWAYS use one of the available functions to progress the conversation. Be professional but friendly.",
-            }
-        ],
+        role_message="You are Jessica, an agent for Tri-County Health Services. You must ALWAYS use one of the available functions to progress the conversation. Be professional but friendly.",
         task_messages=[
             {
-                "role": "system",
+                "role": "user",
                 "content": "Start by introducing yourself to Chad Bailey, then ask for their date of birth, including the year. Once they provide their birthday, use verify_birthday to check it. If verified (1983-01-01), proceed to prescriptions.",
             }
         ],
@@ -265,15 +259,10 @@ def create_prescriptions_node() -> NodeConfig:
 
     return NodeConfig(
         name="get_prescriptions",
-        role_messages=[
-            {
-                "role": "system",
-                "content": "You are Jessica, an agent for Tri-County Health Services. You must ALWAYS use one of the available functions to progress the conversation. Be professional but friendly.",
-            }
-        ],
+        role_message="You are Jessica, an agent for Tri-County Health Services. You must ALWAYS use one of the available functions to progress the conversation. Be professional but friendly.",
         task_messages=[
             {
-                "role": "system",
+                "role": "user",
                 "content": "This step is for collecting prescriptions. Ask them what prescriptions they're taking, including the dosage. Get to the point by saying 'Thanks for confirming that. First up, what prescriptions are you currently taking, including the dosage for each medication?'. After recording prescriptions (or confirming none), proceed to allergies.",
             }
         ],
@@ -310,7 +299,7 @@ def create_allergies_node() -> NodeConfig:
         name="get_allergies",
         task_messages=[
             {
-                "role": "system",
+                "role": "user",
                 "content": "Collect allergy information. Ask about any allergies they have. After recording allergies (or confirming none), proceed to medical conditions.",
             }
         ],
@@ -346,7 +335,7 @@ def create_conditions_node() -> NodeConfig:
         name="get_conditions",
         task_messages=[
             {
-                "role": "system",
+                "role": "user",
                 "content": "Collect medical condition information. Ask about any medical conditions they have. After recording conditions (or confirming none), proceed to visit reasons.",
             }
         ],
@@ -382,7 +371,7 @@ def create_visit_reasons_node() -> NodeConfig:
         name="get_visit_reasons",
         task_messages=[
             {
-                "role": "system",
+                "role": "user",
                 "content": "Collect information about the reason for their visit. Ask what brings them to the doctor today. After recording their reasons, proceed to verification.",
             }
         ],
@@ -412,7 +401,7 @@ def create_verification_node() -> NodeConfig:
         name="verify",
         task_messages=[
             {
-                "role": "system",
+                "role": "user",
                 "content": """Review all collected information with the patient. Follow these steps:
 1. Summarize their prescriptions, allergies, conditions, and visit reasons
 2. Ask if everything is correct
@@ -447,7 +436,7 @@ def create_confirmation_node() -> NodeConfig:
         name="confirm",
         task_messages=[
             {
-                "role": "system",
+                "role": "user",
                 "content": "Once confirmed, thank them, then use the complete_intake function to end the conversation.",
             }
         ],
@@ -461,7 +450,7 @@ def create_end_node() -> NodeConfig:
         name="end",
         task_messages=[
             {
-                "role": "system",
+                "role": "user",
                 "content": "Thank them for their time and end the conversation.",
             }
         ],
@@ -475,14 +464,16 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
     tts = CartesiaTTSService(
         api_key=os.getenv("CARTESIA_API_KEY"),
         voice_id="71a7ad14-091c-4e8e-a314-022ece01c121",  # British Reading Lady
-        text_filters=[MarkdownTextFilter()],
     )
     # LLM service is created using the create_llm function from utils.py
     # Default is OpenAI; can be changed by setting LLM_PROVIDER environment variable
     llm = create_llm()
 
     context = LLMContext()
-    context_aggregator = LLMContextAggregatorPair(context)
+    context_aggregator = LLMContextAggregatorPair(
+        context,
+        user_params=LLMUserAggregatorParams(vad_analyzer=SileroVADAnalyzer()),
+    )
 
     pipeline = Pipeline(
         [

@@ -5,15 +5,93 @@ All notable changes to **Pipecat Flows** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.0.24] - 2026-03-20
 
 ### Added
 
-- Added support for `global_functions` parameter in `FlowManager` initialization. Global functions are available at every node in a flow without needing to be specified in each node's configuration. Supports both `FlowsFunctionSchema` and `FlowsDirectFunction` types.
+- Added `timeout_secs` to `FlowsFunctionSchema` and `@flows_direct_function`
+  decorator for per-tool function call timeout control, overriding the global
+  `function_call_timeout_secs`.
+
+- Added `role_message` (`str`) as the preferred field for
+  setting the bot's role/personality. The system instruction is sent via
+  `LLMUpdateSettingsFrame` instead of being included as system messages in the
+  conversation context.
 
 ### Changed
 
-- Updated food ordering examples ([food_ordering.py](examples/food_ordering.py) and [food_ordering_direct_functions.py](examples/food_ordering_direct_functions.py)) to demonstrate global function usage with a delivery estimate function.
+- Updated the `pipecat-ai` minimum supported version to `0.0.105`.
+
+### Deprecated
+
+- `role_messages` is deprecated in favor of `role_message` (`str`). The old
+  `List[Dict]` format is still supported for backward compatibility but will be
+  removed in 1.0.0.
+
+### Fixed
+
+- Fixed a bug where the system instruction was lost during `RESET` and
+  `RESET_WITH_SUMMARY` context strategy transitions when the new node did not
+  re-specify it.
+
+## [0.0.23] - 2026-02-27
+
+### Added
+
+- Added `cancel_on_interruption` to `FlowsFunctionSchema`s.
+
+- Added `@flows_direct_function` decorator for attaching metadata to Pipecat
+  direct functions. This allows configuring behavior like
+  `cancel_on_interruption` on the function definition.
+
+  Example usage:
+
+  ```python
+  from pipecat_flows import flows_direct_function, FlowManager
+
+  @flows_direct_function(cancel_on_interruption=False)
+  async def long_running_task(flow_manager: FlowManager, query: str):
+      """Perform a task that should not be cancelled on interruption.
+
+      Args:
+          query: The query to process.
+      """
+      # ... implementation
+      return {"status": "complete"}, None
+  ```
+
+  Non-decorated direct functions use `cancel_on_interruption=False` by default,
+  ensuring all function calls complete even during user interruptions.
+
+### Changed
+
+- Changed `cancel_on_interruption` default from `True` to `False` in both
+  `FlowsFunctionSchema` and `@flows_direct_function`. Function calls now
+  complete even during user interruptions by default, preventing stalled
+  transitions and dropped results.
+
+### Fixed
+
+- Fixed interrupted transition leaving flow permanently stuck when a user
+  interruption cancelled a function call mid-execution (#234).
+
+## [0.0.22] - 2025-11-18
+
+### Added
+
+- Added support for `global_functions` parameter in `FlowManager`
+  initialization. Global functions are available at every node in a flow
+  without needing to be specified in each node's configuration. Supports both
+  `FlowsFunctionSchema` and `FlowsDirectFunction` types.
+
+### Changed
+
+- Changed the fallback strategy to `APPEND` in the event that
+  `RESET_WITH_SUMMARY` fails.
+
+- Updated food ordering examples ([food_ordering.py](examples/food_ordering.py)
+  and [food_ordering_direct_functions.py](examples/food_ordering_direct_functions.py))
+  to demonstrate global function usage with a delivery estimate function.
 
 ## [0.0.21] - 2025-09-17
 
@@ -24,7 +102,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   runtime.
 
   There are a couple of pre-requisites to using `LLMSwitcher`:
-
   - You must be using the new universal `LLMContext` and
     `LLMContextAggregatorPair` (as of Pipecat 0.0.82, supported only by
     Pipecat's OpenAI and Google LLM implementations, but with more on the way).
@@ -216,7 +293,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   section above for more details.
 
 - Deprecated `set_node()` in favor of doing the following for dynamic flows:
-
   - Prefer "consolidated" or "direct" functions that return a tuple (result,
     next node) over deprecated `transition_callback`s
   - Pass your initial node to `FlowManager.initialize()`
@@ -503,7 +579,6 @@ def create_node() -> NodeConfig:
 ### Changed
 
 - Updated `FlowManager` to more predictably handle function calls:
-
   - Edge functions (which transition to a new node) now result in an LLM
     completion after both the function call and messages are added to the
     LLM's context.
@@ -513,7 +588,6 @@ def create_node() -> NodeConfig:
     execution timing.
 
 - Breaking changes:
-
   - The FlowManager has a new required arg, `context_aggregator`.
   - Pipecat's minimum version has been updated to 0.0.53 in order to use the
     new `FunctionCallResultProperties` frame.
@@ -526,7 +600,6 @@ def create_node() -> NodeConfig:
 
 - Nodes now have two message types to better delineate defining the role or
   persona of the bot from the task it needs to accomplish. The message types are:
-
   - `role_messages`, which defines the personality or role of the bot
   - `task_messages`, which defines the task to be completed for a given node
 
@@ -606,7 +679,6 @@ def create_node() -> NodeConfig:
 ### Added
 
 - Added LLM support for:
-
   - Anthropic
   - Google Gemini
 
@@ -614,7 +686,6 @@ def create_node() -> NodeConfig:
   messages and function call formats
 
 - Added new examples:
-
   - movie_explorer_anthropic.py (Claude 3.5)
   - movie_explorer_gemini.py (Gemini 1.5 Flash)
   - travel_planner_gemini.py (Gemini 1.5 Flash)
@@ -632,12 +703,10 @@ def create_node() -> NodeConfig:
 ### Changed
 
 - Renamed function types to use graph terminology:
-
   - "Terminal functions" are now "node functions" (operations within a state)
   - "Transitional functions" are now "edge functions" (transitions between states)
 
 - Updated function registration process:
-
   - Node functions must be registered directly with the LLM before flow initialization
   - Edge functions are automatically registered by FlowManager during initialization
   - LLM instance is now required in FlowManager constructor

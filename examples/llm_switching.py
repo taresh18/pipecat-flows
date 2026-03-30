@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2024-2025, Daily
+# Copyright (c) 2024-2026, Daily
 #
 # SPDX-License-Identifier: BSD 2-Clause License
 #
@@ -37,7 +37,10 @@ from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.service_switcher import ServiceSwitcherStrategyManual
 from pipecat.pipeline.task import PipelineParams, PipelineTask
 from pipecat.processors.aggregators.llm_context import LLMContext
-from pipecat.processors.aggregators.llm_response_universal import LLMContextAggregatorPair
+from pipecat.processors.aggregators.llm_response_universal import (
+    LLMContextAggregatorPair,
+    LLMUserAggregatorParams,
+)
 from pipecat.processors.frame_processor import FrameDirection
 from pipecat.runner.types import RunnerArguments
 from pipecat.runner.utils import create_transport
@@ -63,17 +66,14 @@ transport_params = {
     "daily": lambda: DailyParams(
         audio_in_enabled=True,
         audio_out_enabled=True,
-        vad_analyzer=SileroVADAnalyzer(),
     ),
     "twilio": lambda: FastAPIWebsocketParams(
         audio_in_enabled=True,
         audio_out_enabled=True,
-        vad_analyzer=SileroVADAnalyzer(),
     ),
     "webrtc": lambda: TransportParams(
         audio_in_enabled=True,
         audio_out_enabled=True,
-        vad_analyzer=SileroVADAnalyzer(),
     ),
 }
 
@@ -147,12 +147,7 @@ async def summarize_conversation(flow_manager: FlowManager) -> tuple[None, NodeC
 def create_main_node(summarize: bool = False) -> NodeConfig:
     return NodeConfig(
         name="main",
-        role_messages=[
-            {
-                "role": "system",
-                "content": "You are a helpful LLM in a WebRTC call. Your goal is to demonstrate your capabilities in a succinct way. Your output will be converted to audio so don't include special characters in your answers. Respond to what the user said in a creative and helpful way.",
-            }
-        ],
+        role_message="You are a helpful LLM in a WebRTC call. Your goal is to demonstrate your capabilities in a succinct way. Your output will be converted to audio so don't include special characters in your answers. Respond to what the user said in a creative and helpful way.",
         context_strategy=ContextStrategyConfig(
             strategy=ContextStrategy.RESET_WITH_SUMMARY,
             summary_prompt="Summarize the conversation so far in a concise way.",
@@ -161,7 +156,7 @@ def create_main_node(summarize: bool = False) -> NodeConfig:
         else ContextStrategyConfig(strategy=ContextStrategy.APPEND),
         task_messages=[
             {
-                "role": "system",
+                "role": "user",
                 "content": "Say the conversation summary, which was already retrieved (do not invoke the summarize_conversation function again)."
                 if summarize
                 else "Say a brief hello.",
@@ -184,7 +179,10 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
     # Shared context and aggregators for LLM services
     context = LLMContext()
     global context_aggregator
-    context_aggregator = LLMContextAggregatorPair(context)
+    context_aggregator = LLMContextAggregatorPair(
+        context,
+        user_params=LLMUserAggregatorParams(vad_analyzer=SileroVADAnalyzer()),
+    )
 
     # LLM services
     global llm_openai, llm_google, llm_anthropic, llm_aws, llm_switcher

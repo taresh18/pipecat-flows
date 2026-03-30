@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2024-2025, Daily
+# Copyright (c) 2024-2026, Daily
 #
 # SPDX-License-Identifier: BSD 2-Clause License
 #
@@ -40,7 +40,10 @@ from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.task import PipelineParams, PipelineTask
 from pipecat.processors.aggregators.llm_context import LLMContext
-from pipecat.processors.aggregators.llm_response_universal import LLMContextAggregatorPair
+from pipecat.processors.aggregators.llm_response_universal import (
+    LLMContextAggregatorPair,
+    LLMUserAggregatorParams,
+)
 from pipecat.runner.types import RunnerArguments
 from pipecat.runner.utils import create_transport
 from pipecat.services.cartesia.tts import CartesiaTTSService
@@ -48,7 +51,6 @@ from pipecat.services.deepgram.stt import DeepgramSTTService
 from pipecat.transports.base_transport import BaseTransport, TransportParams
 from pipecat.transports.daily.transport import DailyParams
 from pipecat.transports.websocket.fastapi import FastAPIWebsocketParams
-from pipecat.utils.text.markdown_text_filter import MarkdownTextFilter
 from utils import create_llm
 
 from pipecat_flows import FlowArgs, FlowManager, FlowResult, FlowsFunctionSchema, NodeConfig
@@ -59,17 +61,14 @@ transport_params = {
     "daily": lambda: DailyParams(
         audio_in_enabled=True,
         audio_out_enabled=True,
-        vad_analyzer=SileroVADAnalyzer(),
     ),
     "twilio": lambda: FastAPIWebsocketParams(
         audio_in_enabled=True,
         audio_out_enabled=True,
-        vad_analyzer=SileroVADAnalyzer(),
     ),
     "webrtc": lambda: TransportParams(
         audio_in_enabled=True,
         audio_out_enabled=True,
-        vad_analyzer=SileroVADAnalyzer(),
     ),
 }
 
@@ -194,19 +193,10 @@ def create_initial_node() -> NodeConfig:
     """Create the initial node asking for age."""
     return {
         "name": "initial",
-        "role_messages": [
-            {
-                "role": "system",
-                "content": (
-                    "You are a friendly insurance agent. Your responses will be "
-                    "converted to audio, so avoid special characters. Always use "
-                    "the available functions to progress the conversation naturally."
-                ),
-            }
-        ],
+        "role_message": "You are a friendly insurance agent. Your responses will be converted to audio, so avoid special characters. Always use the available functions to progress the conversation naturally.",
         "task_messages": [
             {
-                "role": "system",
+                "role": "user",
                 "content": "Start by asking for the customer's age.",
             }
         ],
@@ -228,7 +218,7 @@ def create_marital_status_node() -> NodeConfig:
         "name": "marital_status",
         "task_messages": [
             {
-                "role": "system",
+                "role": "user",
                 "content": "Ask about the customer's marital status for premium calculation.",
             }
         ],
@@ -250,7 +240,7 @@ def create_quote_calculation_node(age: int, marital_status: str) -> NodeConfig:
         "name": "quote_calculation",
         "task_messages": [
             {
-                "role": "system",
+                "role": "user",
                 "content": (
                     f"Calculate a quote for {age} year old {marital_status} customer. "
                     "First, call calculate_quote with their information. "
@@ -281,7 +271,7 @@ def create_quote_results_node(
         "name": "quote_results",
         "task_messages": [
             {
-                "role": "system",
+                "role": "user",
                 "content": (
                     f"Quote details:\n"
                     f"Monthly Premium: ${quote['monthly_premium']:.2f}\n"
@@ -323,7 +313,7 @@ def create_end_node() -> NodeConfig:
         "name": "end",
         "task_messages": [
             {
-                "role": "system",
+                "role": "user",
                 "content": (
                     "Thank the customer for their time and end the conversation. "
                     "Mention that a representative will contact them about the quote."
@@ -340,14 +330,16 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
     tts = CartesiaTTSService(
         api_key=os.getenv("CARTESIA_API_KEY"),
         voice_id="71a7ad14-091c-4e8e-a314-022ece01c121",  # British Reading Lady
-        text_filters=[MarkdownTextFilter()],
     )
     # LLM service is created using the create_llm function from utils.py
     # Default is OpenAI; can be changed by setting LLM_PROVIDER environment variable
     llm = create_llm()
 
     context = LLMContext()
-    context_aggregator = LLMContextAggregatorPair(context)
+    context_aggregator = LLMContextAggregatorPair(
+        context,
+        user_params=LLMUserAggregatorParams(vad_analyzer=SileroVADAnalyzer()),
+    )
 
     pipeline = Pipeline(
         [
